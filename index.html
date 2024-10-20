@@ -4,27 +4,262 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Quantum Squares</title>
-    <link rel="stylesheet" href="style.css">
-    
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            text-align: center;
+            margin-top: 25px;
+            background-color: #19758e;
+        }
+        h1 {
+            color: #FFBF61;
+            margin-top: 2px;
+            font-size: 3.5rem;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.2);
+        }
+        #game-board {
+            display: grid;
+            align-items: center;
+            justify-content: center;
+            grid-template-columns: repeat(5, 80px);
+            grid-gap: 5px;
+            margin: 20px auto;
+            width: 450px;
+        }
+        .square {
+            width: 80px;
+            height: 80px;
+            background-color: lightgray;
+            border-radius: 15px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 24px;
+            font-weight: bold;
+            transition: background-color 0.3s ease, transform 0.2s;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+        }
+        .square:hover {
+            cursor: pointer;
+            transform: scale(1.1);
+        }
+        .player1 {
+            background-color: lightblue;
+            animation: fadeIn 0.5s;
+        }
+        .player2 {
+            background-color: lightcoral;
+            animation: fadeIn 0.5s;
+        }
+        #info {
+            color: #8ABFA3;
+            margin-top: 20px;
+            font-size: 18px;
+        }
+        button {
+            background-color: #FFBF61;
+            padding: 12px 20px;
+            font-size: 18px;
+            font-weight: 600;
+            margin-top: 15px;
+            border-radius: 10px;
+            border: none;
+            outline: none;
+            transition: background-color 0.3s ease, transform 0.2s;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
+        }
+        button:hover {
+            cursor: pointer;
+            background-color: lightgray;
+            transform: scale(1.05);
+        }
+        #error-message {
+            color: red;
+            margin-top: 15px;
+            transition: opacity 0.5s ease;
+        }
+        #scores {
+            font-size: 22px;
+            font-weight: 600;
+            color: #FFBF61;
+            margin-top: 15px;
+        }
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+            }
+            to {
+                opacity: 1;
+            }
+        }
+    </style>
 </head>
 <body>
-
     <h1>Quantum Squares</h1>
-
     <div id="game-board"></div>
     <div id="error-message"></div>
-    
-    <div id="scores">
-        <p>Player 1 Points: <span id="player1-points">0</span></p>
-        <p>Player 2 Points: <span id="player2-points">0</span></p>
-    </div>
-
     <div id="info">
         <p>Current Player: <span id="current-player">1</span></p>
         <button onclick="resetGame()">Reset Game</button>
     </div>
+    <div id="scores">
+        <p>Player 1 Points: <span id="player1-points">0</span></p>
+        <p>Player 2 Points: <span id="player2-points">0</span></p>
+    </div>
+    <audio id="click-sound" src="click-sound.mp3" preload="auto"></audio>
+    <audio id="win-sound" src="win-sound.mp3" preload="auto"></audio>
+    <script>
+        const BOARD_SIZE = 5;
+        const CONTROL_THRESHOLD = 4;
+        const WINNING_SQUARES = 10;
 
-    <script src="script.js"></script>
+        let board = Array.from({ length: BOARD_SIZE }, () => Array.from({ length: BOARD_SIZE }, () => ({
+            particles: " ",
+            player: null
+        })));
 
-</body>
-</html>
+        let currentPlayer = 1;
+        let playerControlledSquares = { 1: 0, 2: 0 };
+        let playerPoints = { 1: 0, 2: 0 };
+
+        function renderBoard() {
+            const gameBoard = document.getElementById("game-board");
+            gameBoard.innerHTML = '';
+
+            for (let row = 0; row < BOARD_SIZE; row++) {
+                for (let col = 0; col < BOARD_SIZE; col++) {
+                    let square = document.createElement('div');
+                    square.classList.add('square');
+                    square.textContent = board[row][col].particles;
+
+                    if (board[row][col].player === 1) {
+                        square.classList.add('player1');
+                    } else if (board[row][col].player === 2) {
+                        square.classList.add('player2');
+                    }
+
+                    square.addEventListener('click', () => {
+                        playSound('click-sound');
+                        placeParticle(row, col);
+                    });
+                    gameBoard.appendChild(square);
+                }
+            }
+            document.getElementById("current-player").textContent = currentPlayer;
+            document.getElementById("error-message").textContent = "";
+            updateScores();
+        }
+
+        function placeParticle(row, col) {
+            if (board[row][col].player !== null && board[row][col].player !== currentPlayer) {
+                displayError("You can't place a particle here!");
+                return;
+            }
+
+            board[row][col].particles++;
+            if (board[row][col].player === null) {
+                board[row][col].player = currentPlayer;
+            }
+
+            checkForCollapse(row, col);
+            checkForWin();
+
+            currentPlayer = currentPlayer === 1 ? 2 : 1;
+            renderBoard();
+        }
+
+        function checkForCollapse(row, col) {
+            if (board[row][col].particles >= CONTROL_THRESHOLD) {
+                const particlesToDistribute = board[row][col].particles;
+                const previousPlayer = board[row][col].player;
+
+                playerPoints[previousPlayer]++;
+
+                board[row][col].particles = " ";
+                board[row][col].player = null;
+
+                let adjacentSquares = getAdjacentSquares(row, col);
+                adjacentSquares.forEach(([r, c]) => {
+                    if (board[r][c].player !== null && board[r][c].player !== previousPlayer) {
+                        board[r][c].particles += 1;
+                    } else if (board[r][c].player === null) {
+                        board[r][c].particles += 1;
+                        board[r][c].player = previousPlayer;
+                    } else {
+                        if (board[r][c].player === previousPlayer) {
+                            playerControlledSquares[previousPlayer]++;
+                        }
+                    }
+
+                    checkForCollapse(r, c);
+                });
+            }
+        }
+
+        function getAdjacentSquares(row, col) {
+            let adjacent = [];
+            if (row > 0) adjacent.push([row - 1, col]);
+            if (row < BOARD_SIZE - 1) adjacent.push([row + 1, col]);
+            if (col > 0) adjacent.push([row, col - 1]);
+            if (col < BOARD_SIZE - 1) adjacent.push([row, col + 1]);
+            return adjacent;
+        }
+
+        function checkForWin() {
+            playerControlledSquares = { 1: 0, 2: 0 };
+
+            for (let row = 0; row < BOARD_SIZE; row++) {
+                for (let col = 0; col < BOARD_SIZE; col++) {
+                    if (board[row][col].player === 1) {
+                        playerControlledSquares[1]++;
+                    } else if (board[row][col].player === 2) {
+                        playerControlledSquares[2]++;
+                    }
+                }
+            }
+
+            if (playerControlledSquares[1] >= WINNING_SQUARES) {
+                playSound('win-sound');
+                alert("Player 1 wins!");
+                resetGame();
+            } else if (playerControlledSquares[2] >= WINNING_SQUARES) {
+                playSound('win-sound');
+                alert("Player 2 wins!");
+                resetGame();
+            } else if (isBoardFull()) {
+                alert("It's a draw!");
+                resetGame();
+            }
+        }
+
+        function isBoardFull() {
+            return board.every(row => row.every(square => square.particles !== " "));
+        }
+
+        function displayError(message) {
+            const errorMessage = document.getElementById("error-message");
+            errorMessage.textContent = message;
+            setTimeout(() => {
+                errorMessage.textContent = "";
+            }, 3000);
+        }
+
+        function resetGame() {
+            board = Array.from({ length: BOARD_SIZE }, () => Array.from({ length: BOARD_SIZE }, () => ({
+                particles: " ",
+                player: null
+            })));
+            currentPlayer = 1;
+            playerControlledSquares = { 1: 0, 2: 0 };
+            playerPoints = { 1: 0, 2: 0 };
+            renderBoard();
+        }
+
+        function playSound(soundId) {
+            const sound = document.getElementById(soundId);
+            sound.currentTime = 0;
+            sound.play();
+        }
+
+        renderBoard();
+    </script>
